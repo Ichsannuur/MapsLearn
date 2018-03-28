@@ -5,15 +5,17 @@ import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.location.Address;
+import android.location.Criteria;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationManager;
 import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
 import com.google.android.gms.common.GooglePlayServicesRepairableException;
@@ -25,6 +27,7 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.MarkerOptions;
@@ -37,13 +40,17 @@ import com.ics.mapslearn.response.Duration;
 import com.ics.mapslearn.response.LegsItem;
 import com.ics.mapslearn.response.Response;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 
 import retrofit2.Call;
 import retrofit2.Callback;
 
-public class MainActivity extends AppCompatActivity implements OnMapReadyCallback{
+public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
     private GoogleMap mMap;
+    List<Address> addresses;
+    Geocoder geocoder;
     private String API_KEY = "AIzaSyAOz2HtSEYQHcjkqsuHKkuvi_vMAyx3KuA";
     private LatLng pickUpLatLng = null;
     private LatLng locationLatLng = null;
@@ -59,7 +66,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         setContentView(R.layout.activity_main);
         widgetInit();
 
-        SupportMapFragment mapFragment = (SupportMapFragment)getSupportFragmentManager().findFragmentById(R.id.map);
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
         tvStartAddress.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -80,9 +87,9 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private void showPlaceAutoComplete(int typeLocation) {
         REQUEST_CODE = typeLocation;
         AutocompleteFilter autocompleteFilter = new AutocompleteFilter.Builder().setCountry("ID").build();
-        try{
+        try {
             Intent i = new PlaceAutocomplete.IntentBuilder(PlaceAutocomplete.MODE_OVERLAY).setFilter(autocompleteFilter).build(this);
-            startActivityForResult(i,REQUEST_CODE);
+            startActivityForResult(i, REQUEST_CODE);
         } catch (GooglePlayServicesNotAvailableException e) {
             e.printStackTrace();
         } catch (GooglePlayServicesRepairableException e) {
@@ -93,13 +100,12 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if(resultCode == RESULT_OK){
-            Place place = PlaceAutocomplete.getPlace(this,data);
-            if(place.isDataValid()){
-                LatLng placeLatLng = place.getLatLng();
+        if (resultCode == RESULT_OK) {
+            Place place = PlaceAutocomplete.getPlace(this, data);
+            if (place.isDataValid()) {
                 String address = place.getAddress().toString();
 
-                switch (REQUEST_CODE){
+                switch (REQUEST_CODE) {
                     case PICK_UP:
                         tvStartAddress.setText(address);
                         pickUpLatLng = place.getLatLng();
@@ -109,24 +115,24 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                         locationLatLng = place.getLatLng();
                         break;
                 }
-                if(pickUpLatLng != null && locationLatLng != null){
-                    actionRoute(pickUpLatLng,locationLatLng);
+                if (pickUpLatLng != null && locationLatLng != null) {
+                    actionRoute(pickUpLatLng, locationLatLng);
                 }
             }
         }
     }
 
-    private void actionRoute(LatLng pick,LatLng location) {
+    private void actionRoute(LatLng pick, LatLng location) {
         String lokasiAwal = pick.latitude + "," + pick.longitude;
         String lokasiAkhir = location.latitude + "," + location.longitude;
         // Clear dulu Map nya
         mMap.clear();
         APIServices api = RetrofitService.service().create(APIServices.class);
-        Call<Response> routeRespone = api.request_route(lokasiAwal,lokasiAkhir,API_KEY);
+        Call<Response> routeRespone = api.request_route(lokasiAwal, lokasiAkhir, API_KEY);
         routeRespone.enqueue(new Callback<Response>() {
             @Override
             public void onResponse(Call<Response> call, retrofit2.Response<Response> response) {
-                if(response.isSuccessful()){
+                if (response.isSuccessful()) {
                     Response dataDirection = response.body();
                     LegsItem legsItem = dataDirection.getRoutes().get(0).getLegs().get(0);
 
@@ -137,7 +143,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     List<LatLng> decodePath = PolyUtil.decode(polylinePoint);
 
                     //Gambar Garis ke Google Maps
-                    mMap.addPolyline(new PolylineOptions().addAll(decodePath).width(8f).color(Color.argb(255,56,167,252))).setGeodesic(true);
+                    mMap.addPolyline(new PolylineOptions().addAll(decodePath).width(8f).color(Color.argb(255, 56, 167, 252))).setGeodesic(true);
 
                     //Tambah Marker
                     mMap.addMarker(new MarkerOptions().position(pickUpLatLng).title("Lokasi Awal"));
@@ -147,7 +153,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     Distance distance = legsItem.getDistance();
                     Duration duration = legsItem.getDuration();
 
-                    tvDistance.setText(distance.getText().toString());
+                    tvDistance.setText(distance.getText());
 
                     //UNTUK MEMBUAT LAYAR DI TENGAH KETIKA MAP JALAN
                     LatLngBounds.Builder latBuilder = new LatLngBounds.Builder();
@@ -159,7 +165,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     int width = getResources().getDisplayMetrics().widthPixels;
                     int height = getResources().getDisplayMetrics().heightPixels;
                     int padding = (int) (width * 0.2); // jarak
-                    CameraUpdate cu = CameraUpdateFactory.newLatLngBounds(bounds,width,height,padding);
+                    CameraUpdate cu = CameraUpdateFactory.newLatLngBounds(bounds, width, height, padding);
                     mMap.animateCamera(cu);
                     //END
                     infoPanel.setVisibility(View.VISIBLE);
@@ -184,12 +190,54 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
-        mMap.setPadding(10, 180, 10, 10);
+        mMap.setPadding(20, 280, 20, 20);
         mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
 
+        mMap.setMyLocationEnabled(true);
+        currentPlace(googleMap);
         mMap.getUiSettings().setCompassEnabled(true);
         mMap.getUiSettings().setZoomGesturesEnabled(true);
         mMap.getUiSettings().setRotateGesturesEnabled(false);
         mMap.getUiSettings().setZoomControlsEnabled(true);
+    }
+
+    private void currentPlace(GoogleMap googleMap) {
+        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        Criteria criteria = new Criteria();
+        String provider = locationManager.getBestProvider(criteria, true);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        Location location = locationManager.getLastKnownLocation(provider);
+        if  (location != null){
+            double latitude = location.getLatitude();
+            double longitude = location.getLongitude();
+            geocoder = new Geocoder(this, Locale.getDefault());
+            LatLng coordinate = new LatLng(latitude, longitude);
+            // Set Lat Long ke lokasiPenjemputan dari tempat sekarang
+            pickUpLatLng = coordinate;
+            try {
+                addresses = geocoder.getFromLocation(latitude,longitude,1);
+                String alamat = addresses.get(0).getAddressLine(0);
+                tvStartAddress.setText(alamat);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            //Set size marker MCB
+//            BitmapDrawable bitmapdraw=(BitmapDrawable)getResources().getDrawable(R.drawable.amu_bubble_mask);
+            googleMap.addMarker(new MarkerOptions().position(coordinate).title("Marker Title").snippet("Marker Description"));
+
+            // For zooming automatically to the location of the marker
+            CameraPosition cameraPosition = new CameraPosition.Builder().target(coordinate).zoom(17).build();
+            googleMap.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition));
+        }
     }
 }
